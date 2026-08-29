@@ -1,0 +1,587 @@
+PenguinHarness run v0.2.2
+Agent: default_agent
+Workspace: /app
+Model: deepseek-v4-flash-0731
+[penguin] output cap clamped hard: max_tokens 256000 -> 126346 (context_window 128000, estimated input 630)
+Let me start by exploring the workspace to understand the task.
+[tool-d73] exec_command <- List workspace files ($ ls -la /app && echo "---" && cat /app/eval.py)
+✓ [approved]
+[tool-d73] exec_command -> total 16
+[tool-d73] exec_command -> drwxr-xr-x 1 root root 4096 Aug 27 14:48 .
+[tool-d73] exec_command -> drwxr-xr-x 1 root root 4096 Aug 27 14:48 ..
+[tool-d73] exec_command -> -rw-r--r-- 1 root root 3112 Jan  1  1970 eval.py
+[tool-d73] exec_command -> -rw-r--r-- 1 root root 1254 Jan  1  1970 model_ref.xml
+[tool-d73] exec_command -> ---
+[tool-d73] exec_command -> import time
+[tool-d73] exec_command -> from pathlib import Path
+[tool-d73] exec_command -> 
+[tool-d73] exec_command -> import mujoco
+[tool-d73] exec_command -> import numpy as np
+[tool-d73] exec_command -> 
+[tool-d73] exec_command -> total_sim_time = 2.0
+[tool-d73] exec_command -> atol = 1e-5  # absolute tolerance for state comparison
+[tool-d73] exec_command -> pctg = 0.6  # target percentage of reference model time
+[tool-d73] exec_command -> n_runs = 20  # number of runs to average timing
+[tool-d73] exec_command -> model_path = Path("model.xml")
+[tool-d73] exec_command -> model_ref_path = Path("model_ref.xml")
+[tool-d73] exec_command -> 
+[tool-d73] exec_command -> 
+[tool-d73] exec_command -> def test_correctness():
+[tool-d73] exec_command ->     """Compare final states of models with potentially different timesteps"""
+[tool-d73] exec_command ->     model = mujoco.MjModel.from_xml_path(str(model_path))
+[tool-d73] exec_command ->     model_ref = mujoco.MjModel.from_xml_path(str(model_ref_path))
+[tool-d73] exec_command -> 
+[tool-d73] exec_command ->     seed = np.random.randint(0, 10000)
+[tool-d73] exec_command ->     final_state = simulate_model(model, seed)
+[tool-d73] exec_command ->     final_state_ref = simulate_model(model_ref, seed)
+[tool-d73] exec_command -> 
+[tool-d73] exec_command ->     # compare final states
+[tool-d73] exec_command ->     state_diff = np.linalg.norm(final_state - final_state_ref)
+[tool-d73] exec_command ->     print(f"Final state difference: {state_diff:.4f}")
+[tool-d73] exec_command -> 
+[tool-d73] exec_command ->     assert np.allclose(final_state, final_state_ref, atol=atol), (
+[tool-d73] exec_command ->         f"Final states differ by {state_diff}, exceeding tolerance {atol}"
+[tool-d73] exec_command ->     )
+[tool-d73] exec_command -> 
+[tool-d73] exec_command -> 
+[tool-d73] exec_command -> def simulate_model(model, seed):
+[tool-d73] exec_command ->     """Simulate model with randomized initial qpos and return only the final state"""
+[tool-d73] exec_command ->     data = mujoco.MjData(model)
+[tool-d73] exec_command ->     nstep = int(total_sim_time / model.opt.timestep)
+[tool-d73] exec_command ->     # jiggle initial qpos for robustness
+[tool-d73] exec_command ->     rng = np.random.default_rng(seed)
+[tool-d73] exec_command ->     data.qpos += rng.normal(0, 0.01, size=data.qpos.shape)
+[tool-d73] exec_command ->     mujoco.mj_forward(model, data)
+[tool-d73] exec_command -> 
+[tool-d73] exec_command ->     for _ in range(nstep):
+[tool-d73] exec_command ->         mujoco.mj_step(model, data)
+[tool-d73] exec_command -> 
+[tool-d73] exec_command ->     full_physics = mujoco.mjtState.mjSTATE_FULLPHYSICS
+[tool-d73] exec_command ->     state = np.zeros(mujoco.mj_stateSize(model, full_physics))
+[tool-d73] exec_command ->     mujoco.mj_getState(model, data, state, full_physics)
+[tool-d73] exec_command ->     assert not np.isnan(state).any(), "Final state contains NaN values"
+[tool-d73] exec_command ->     assert not np.isinf(state).any(), "Final state contains Inf values"
+[tool-d73] exec_command ->     return state
+[tool-d73] exec_command -> 
+[tool-d73] exec_command -> 
+[tool-d73] exec_command -> def simulation_time(model, n_runs):
+[tool-d73] exec_command ->     """Run n_runs times with different seeds, and return time taken."""
+[tool-d73] exec_command ->     times = []
+[tool-d73] exec_command ->     for _ in range(n_runs):
+[tool-d73] exec_command ->         seed = np.random.randint(0, 10000)
+[tool-d73] exec_command ->         time_start = time.perf_counter()
+[tool-d73] exec_command ->         _ = simulate_model(model, seed)
+[tool-d73] exec_command ->         time_end = time.perf_counter()
+[tool-d73] exec_command ->         times.append(time_end - time_start)
+[tool-d73] exec_command ->     return np.array(times)
+[tool-d73] exec_command -> 
+[tool-d73] exec_command -> 
+[tool-d73] exec_command -> def test_model_speed():
+[tool-d73] exec_command ->     """Test that new model is faster than the reference model"""
+[tool-d73] exec_command ->     model = mujoco.MjModel.from_xml_path(str(model_path))
+[tool-d73] exec_command ->     model_ref = mujoco.MjModel.from_xml_path(str(model_ref_path))
+[tool-d73] exec_command -> 
+[tool-d73] exec_command ->     # simulate both models for same total time with same random seed
+[tool-d73] exec_command ->     times_model = simulation_time(model, n_runs=n_runs)
+[tool-d73] exec_command ->     times_model_ref = simulation_time(model_ref, n_runs=n_runs)
+[tool-d73] exec_command ->     speedup = (times_model_ref / times_model).mean().item()
+[tool-d73] exec_command ->     act_time_pctg = (times_model / times_model_ref).mean().item()
+[tool-d73] exec_command -> 
+[tool-d73] exec_command ->     print(f"Avg simulation time: {times_model.mean().item():.4f} secs")
+[tool-d73] exec_command ->     print(f"Avg simulation time (ref): {times_model_ref.mean().item():.4f} secs")
+[tool-d73] exec_command ->     print(f"Speedup: {speedup:.2f}x")
+[tool-d73] exec_command ->     print(f"Time pctg: {act_time_pctg:.2f}")
+[tool-d73] exec_command -> 
+[tool-d73] exec_command ->     assert act_time_pctg <= pctg, (
+[tool-d73] exec_command ->         f"Time pctg {act_time_pctg * 100:.2f}% (need {pctg * 100:.2f}%)"
+[tool-d73] exec_command ->     )
+[tool-d73] exec_command -> 
+[tool-d73] exec_command -> 
+[tool-d73] exec_command -> if __name__ == "__main__":
+[tool-d73] exec_command ->     test_correctness()
+[tool-d73] exec_command ->     test_model_speed()
+[tool-973] read_file /app/model_ref.xml
+✓ [approved]
+[tool-973] read_file ->      1	<!-- Inspired by https://github.com/google-deepmind/mujoco/blob/main/model/plugin/elasticity/cable.xml -->
+[tool-973] read_file ->      2	<mujoco model="Cable">
+[tool-973] read_file ->      3	
+[tool-973] read_file ->      4	  <extension>
+[tool-973] read_file ->      5	    <plugin plugin="mujoco.elasticity.cable"/>
+[tool-973] read_file ->      6	  </extension>
+[tool-973] read_file ->      7	
+[tool-973] read_file ->      8	  <statistic center="0 0 .3" extent="1"/>
+[tool-973] read_file ->      9	  <visual>
+[tool-973] read_file ->     10	    <global elevation="-30"/>
+[tool-973] read_file ->     11	  </visual>
+[tool-973] read_file ->     12	
+[tool-973] read_file ->     13	  <compiler autolimits="true"/>
+[tool-973] read_file ->     14	
+[tool-973] read_file ->     15	  <size memory="2M"/>
+[tool-973] read_file ->     16	
+[tool-973] read_file ->     17	  <worldbody>
+[tool-973] read_file ->     18	    <composite type="cable" curve="s" count="41 1 1" size="1" offset="-.3 0 .6" initial="none">
+[tool-973] read_file ->     19	      <plugin plugin="mujoco.elasticity.cable">
+[tool-973] read_file ->     20	        <!--Units are in Pa (SI)-->
+[tool-973] read_file ->     21	        <config key="twist" value="1e7"/>
+[tool-973] read_file ->     22	        <config key="bend" value="4e6"/>
+[tool-973] read_file ->     23	        <config key="vmax" value="0.05"/>
+[tool-973] read_file ->     24	      </plugin>
+[tool-973] read_file ->     25	      <joint kind="main" damping=".015"/>
+[tool-973] read_file ->     26	      <geom type="capsule" size=".005" rgba=".8 .2 .1 1" condim="1"/>
+[tool-973] read_file ->     27	    </composite>
+[tool-973] read_file ->     28	    <body name="slider" pos=".7 0 .6">
+[tool-973] read_file ->     29	      <joint type="slide" axis="1 0 0" damping=".1"/>
+[tool-973] read_file ->     30	      <geom size=".01"/>
+[tool-973] read_file ->     31	    </body>
+[tool-973] read_file ->     32	  </worldbody>
+[tool-973] read_file ->     33	  <equality>
+[tool-973] read_file ->     34	    <connect name="right_boundary" body1="B_last" body2="slider" anchor=".025 0 0"/>
+[tool-973] read_file ->     35	  </equality>
+[tool-973] read_file ->     36	  <contact>
+[tool-973] read_file ->     37	    <exclude body1="B_last" body2="slider"/>
+[tool-973] read_file ->     38	  </contact>
+[tool-973] read_file ->     39	  <actuator>
+[tool-973] read_file ->     40	    <motor site="S_last" gear="0 0 0 1 0 0" ctrlrange="-.03 .03"/>
+[tool-973] read_file ->     41	  </actuator>
+[tool-973] read_file ->     42	</mujoco>
+[penguin] output cap clamped hard: max_tokens 256000 -> 124534 (context_window 128000, estimated input 2442)
+Let me understand the task:
+
+1. We have a reference MuJoCo model at `/app/model_ref.xml`.
+2. We need to create `/app/model.xml` which is a tuned version that simulates the same scene in 60% or less of the original time.
+3. The same full physics state should be reached within atol=1e-5 without NaN or Inf.
+4. The eval.py script helps iterate.
+5. The correctness test: changing physical properties of bodies breaks them.
+
+Let me analyze the model:
+- It's a cable model (composite of type cable) with 41 elements.
+- The composite has elasticity plugin with twist, bend, vmax.
+- There's a joint with damping.
+- A slider body with slide joint.
+- An equality constraint connecting B_last to slider.
+- A motor actuator.
+
+The full physics state includes qpos, qvel, etc. The correctness test compares full physics state (mjSTATE_FULLPHYSICS).
+
+To make simulation faster while reaching the same state, the key trick is to use a larger timestep. But wait, the correctness test simulates with `nstep = int(total_sim_time / model.opt.timestep)` and uses each model's own timestep. So if we increase the timestep, we take fewer steps shrink... no wait, the total sim time is fixed at 2.0s, so fewer steps with larger dt. But the state comparison is with atol=1e-5, which is tight. Larger timestep would typically produce different (less accurate) physics, so the final state would differ more.
+
+Hmm, but maybe there's an option like `tol` or integrator settings in MuJoCo that can be tuned to go faster while preserving accuracy.
+
+Let me think about MuJoCo options:
+- `model.opt.timestep`
+- `model.opt.integrator` (Euler vs RK4)
+- `model.opt.iterations` (for constraint solver, 1 by default)
+- `model.opt.solver` (Newton, CG, etc.)
+- `model.opt.tolerance`
+- `model.opt.disableflags`
+
+The correctness test compares full physics state with atol=1e-5. That's quite strict.
+
+Actually, the key insight: the same full physics state must be reached. If we change the timestep, the final state after 2 seconds won't match to 1e-5. So we probably need to keep the same timestep but make each step faster.
+
+How to make each step faster without changing physical properties?
+
+Ideas:
+1. Reduce the number of solver iterations? But that changes accuracy.
+2. Use a different solver that is faster but same accuracy? Actually there might be ways.
+3. Disable some features (e.g., `disables` flags) that don't affect physics.
+
+Actually, wait. Let's reconsider. The correctness test: `nstep = int(total_sim_time / model.opt.timestep)`. With larger timestep, fewer steps, but each step covers more timecars. But the same full physics state at 2s must be within 1e-5. Heavier timestep would diverge.
+
+Hmm, but perhaps the model has continuous-time dynamics that are linear in a way... Actually no, the cable with elasticity and contacts is nonlinear.
+
+Let me think of other approaches. The eval.py runs `test_correctness()` first and then `test_model_speed()`. Both use the same seeds set randomly at test time span.
+
+Let me look more carefully at what makes the model slow. The composite cable with 41 count and elasticity plugin... The plugin computes forces. The composite creates many bodies and constraints.
+
+Actually a big factor: the number of solver iterations and the timestep. Default timestep is 0.002 in MuJoCo (500 Hz). The eval uses `int(total_sim_time / model.opt.timestep)` so 1000 steps for 2s.
+
+Wait, what's the default timestep? For this model, there's no `<option>` tag, so the default timestep for MuJoCo is 0.002. Let me check.
+
+To speed up, we could increase the timestep, but then the state at 2.0s would differ. However, maybe if we increase it slightly, the difference is within 1e-5? Unlikely for 2 seconds of nonlinear dynamics.
+
+Actually, wait—the tolerance of 1e-5 is on the full physics state after 2 seconds. Even tiny changes in dynamics will accumulate. This seems very hard unless we keep the exact same timestep and mechanisms.
+
+So the approach must be to make each timestep faster. The timing in eval.py measures wall-clock time to simulate. So optimizations in MuJoCo's internal solver settings could help.
+
+Let me think about MuJoCo optimization knobs:
+
+1. `option.integrator`: "Euler" vs "RK4". RK4 is more accurate but slower. Euler would be faster but different. However, changing integrator changes the trajectory.
+
+Actually wait—maybe accuracy doesn't need to match in trajectory; it needs to match final state to 1e-5. Euler vs RK4 with same dt will produce different final states after 2s.
+
+2. `option.solver`: Newton vs PGS vs CG vs ... Different solvers converge at different speeds. But they produce (approximately) the same solution if converged to the same tolerance)Skip. MuJoCo aims for solver-independent accuracy, but after 2s there could be small differences.
+
+3. `option.iterations`: number of constraint solver iterations. Default is 100? Actually in MuJoCo, default iterations is 100? Let me recall. In MuJoCo 2.x/3.x, `model.opt.iterations` default is 100. Hmm.
+
+4. `option.tolerance`: default 1e-10.
+
+5. `option.disableflags`: disable things like CONTACT, etc. But that would change physics.
+
+Hmm let me actually run the model and inspect.
+
+Let me look at the model with MuJoCo Python. Let me check the environment.
+
+Actually, let me reconsider. The task says "changing physical properties of the bodies will break them". That hints we shouldn't change masses/inertias/geom properties. But we could change compiled model parameters.
+
+Wait, maybe the trick is about the elasticy plugin. Let me look at it. The plugin is `mujoco.elasticity.cable`. The plugin has parameters twist, bend, vmax. Maybe one can tune plugin internal? No, that changes physics.
+
+Let me think about the "same full physics state". The full physics state includes all DoFs. The state comparison is at a specific time (2.0s) with randomized initial qpos.
+
+Since initial qpos is randomized by ±0.01 noise, the trajectory from slightly different initial conditions would amplify. So this is a sensitive test. The tuned model must reproduce the exact integration.
+
+Given that, the only way is to keep the same numerical integration essentially exactly. The way to be faster then is to reduce the number of constraint solver iterations or use faster solver settings that still converge to the same solution.
+
+Actually, another thought: the eval measures time in Python with the MjData simulation. A big part of time is `mujoco.mj_step`. The cost per step depends on the model's complexity (number of bodies, constraints) and solver settings.
+
+What about reducing the "control" cost? Hmm.
+
+Let me think about what "tuning" options in MuJoCo can make things faster while keeping the same state:
+
+- `option.iterations`: lower iterations might still converge to the same constraint solution if the model has simple constraints. Each iteration is expensive. The default may be much higher than neededation. But wait, does MjStep re-run the constraint solver each step? Yes. Reducing iterations reduces work per stepellate.
+
+But the correctness test compares full physics state. If constraint solver converges to the same answer (within tolerance), the state matches. If it under-converges, states diverge.
+
+The model has a single equality connect constraint and the composite cable constraints (main joint). Actually the composite cable with count 41 creates many bodies with joints. There's also implicit integration of the elasticity.
+
+Hmm, let me just experiment.
+
+Let me first get MuJoCo installed and run eval on the reference. Then try variations.
+
+Let me check Python and mujoco.
+[tool-0fc] exec_command <- Check python and mujoco version ($ cd /app && python -c "import mujoco; print(mujoco.__version__)")
+✓ [approved]
+[tool-0fc] exec_command -> 3.3.5
+[tool-f9f] exec_command <- Inspect model info via python ($ cd /app && python -c " import mujoco, numpy as np m = mujoco.MjModel.from_xml_path('model_ref.xml') print('timestep', m.opt.timestep) print('integrator', m.opt.integrator) print('solver', m.opt.solver) print('iterations', m.opt.iterations) print('tolerance', m.opt.tolerance) print('nq', m.nq, 'nv', m.nv, 'nu', m.nu) print('nbody', m.nbody, 'ngeom', m.ngeom, 'njnt', m.njnt) print('nC', m.nC, 'nD', m.nD) print('nnumeric', m.numeric_data.shape) print('disableflags', m.opt.disableflags) d = mujoco.MjData(m) print('qpos size', d.qpos.shape, 'qvel', d.qvel.shape) print('time', d.time) ")
+✓ [approved]
+[tool-f9f] exec_command -> timestep 0.002
+[tool-f9f] exec_command -> integrator 0
+[tool-f9f] exec_command -> solver 2
+[tool-f9f] exec_command -> iterations 100
+[tool-f9f] exec_command -> tolerance 1e-08
+[tool-f9f] exec_command -> nq 157 nv 118 nu 1
+[tool-f9f] exec_command -> nbody 42 ngeom 41 njnt 40
+[tool-f9f] exec_command -> nC 6904 nD 13690
+[tool-f9f] exec_command -> nnumeric (0,)
+[tool-f9f] exec_command -> disableflags 0
+[tool-f9f] exec_command -> qpos size (157,) qvel (118,)
+[tool-f9f] exec_command -> time 0.0
+[penguin] output cap clamped hard: max_tokens 256000 -> 122133 (context_window 128000, estimated input 4843)
+Let me understand the model sizes. There are 41 bodies (cable elements + slider). nC = 6904 contacts. That's a lot. The cable has 41 capsule geoms, and each may contact others... Actually nC is number of contact candidates (preprocessed per step maybe). nD is number of constraint derivatives.
+
+The model cost per step is dominated by the contact solver for 6904 potential contacts. Many are probably pruned each step, but still.
+
+To speed up per-step:
+- Reduce contact candidates? Changing geom sizes would change physics (forbidden by "changing physical properties of bodies breaks them").
+- Use `option.autolimits`? Already set.
+- The constraint solver with 100 iterations on 6904 contacts is expensive.random.
+
+Let me look at MuJoCo options relevant to speed:
+- `m.opt.iterations` = 100. For interior point/Newton solver, iterations is number of constraint iterations. Reducing may speed up but could change results if not converged.
+- `m.opt.tolerance` = 1e-8. Increasing tolerance could reduce iterations internally? Actually in MuJoCo 3.x, `tolerance` is used for the optimization solver convergence. But iterations is capped.
+
+- `m.opt.solver` = 2 (Newton? Let me recall: 0 PGS, 1 CG, 2 Newton). Newton is most accurate but slow.
+
+Alternatives:
+- Enable `newton` and keep iterations.
+
+Hmm wait—but the task explicitly says "takes 60% of the original time or less to simulate the same scene". Maybe the intended solution is to increase the timestep. But correctness with 1e-5 after 2s... let me reconsider.
+
+Actually, wait. Let me re-read: "The same full physics state should be reached within atol=1e-5 without NaN or Inf."
+
+And eval.py's `test_correctness` uses `nstep = int(total_sim_time / model.opt.timestep)` for each model with its own timestepwiata. So if we double the timestep, we take half the number of stepsconduct. The final state after 2s would be different.
+
+But the hint "changing physical properties of the bodies will break them" suggests we should NOT change body properties und Hmm.
+
+Maybe the intended solution: use a different solver (e.g., CG or PGS) with the same timestep. It converges to nearly the same solution but faster. Given tolerance 1e-5 on full state after 2 seconds with randomized initial conditions, solver differences may or may not stay within bounds.
+
+Alternatively, reduce solver iterations while keeping solver=Newton. If the model's constraints converge in fewer iterations (well-conditioned), the state remains the same to 1e-5.
+
+Let me experiment: run eval with variations.
+
+First, let's establish the baseline: copy ref to model.xml and run eval to see timing.
+[tool-9d4] exec_command <- Copy ref to model.xml and run eval baseline ($ cd /app && cp model_ref.xml model.xml && python eval.py)
+✓ [approved]
+[tool-9d4] exec_command -> Final state difference: 0.0000
+[tool-9d4] exec_command -> Avg simulation time: 0.2642 secs
+[tool-9d4] exec_command -> Avg simulation time (ref): 0.2613 secs
+[tool-9d4] exec_command -> Speedup: 0.99x
+[tool-9d4] exec_command -> Time pctg: 1.01
+[tool-9d4] exec_command -> Traceback (most recent call last):
+[tool-9d4] exec_command ->   File "/app/eval.py", line 88, in <module>
+[tool-9d4] exec_command ->     test_model_speed()
+[tool-9d4] exec_command ->     ~~~~~~~~~~~~~~~~^^
+[tool-9d4] exec_command ->   File "/app/eval.py", line 81, in test_model_speed
+[tool-9d4] exec_command ->     assert act_time_pctg <= pctg, (
+[tool-9d4] exec_command ->            ^^^^^^^^^^^^^^^^^^^^^
+[tool-9d4] exec_command -> AssertionError: Time pctg 101.09% (need 60.00%)
+[tool-9d4] exec_command -> 
+[tool-9d4] exec_command -> [exit code: 1]
+[penguin] output cap clamped hard: max_tokens 256000 -> 121278 (context_window 128000, estimated input 5698)
+Baseline: model takes ~0.26s. Need <=60%, so <= ~0.157s.
+
+The eval is on this CPU. Let's think about ways to reduce step cost while preserving final state.
+
+Options to try:
+1. Reduce solver iterations (from 100 to smaller). Check state diff & timing.
+2. Change solver type (e.g., CG or PGS).
+3. Increase tolerance.
+4. Disable flags that affect only contact generation? No.
+
+Let me write a quick experiment script that tries variations and reports state diff and timing.
+[tool-f41] exec_command <- Experiment with solver options ($ cd /app && cat > /tmp/exp.py << 'EOF' import time import mujoco import numpy as np from pathlib import Path def simulate(model, seed, total_sim_time=2.0): data = mujoco.MjData(model) nstep = int(total_sim_time / model.opt.timestep) rng = np.random.default_rng(seed) data.qpos += rng.normal(0, 0.01, size=data.qpos.shape) mujoco.mj_forward(model, data) for _ in range(nstep): mujoco.mj_step(model, data) full_physics = mujoco.mjtState.mjSTATE_FULLPHYSICS state = np.zeros(mujoco.mj_stateSize(model, full_physics)) mujoco.mj_getState(model, data, state, full_physics) return state, nstep ref = mujoco.MjModel.from_xml_path('model_ref.xml') _, nstep_ref = simulate(ref, 1) print('nstep ref', nstep_ref) def trial(name, mutate): m = mujoco.MjModel.from_xml_path('model_ref.xml') mutate(m) seed = 12345 st, ns = simulate(m, seed) refst, _ = simulate(ref, seed) diff = np.linalg.norm(st - refst) # timing ts=[] for s in range(20000,20010): t0=time.perf_counter(); simulate(m, s); ts.append(time.perf_counter()-t0) print(f"{name:35s} diff={diff:.2e} time={np.mean(ts):.4f}") def set_iters(n): m.opt.iterations = n def set_tol(t): m.opt.tolerance = t def set_solver(s): m.opt.solver = s trial('base', lambda m: None) trial('iters=20', lambda m: setattr(m.opt,'iterations',20)) trial('iters=10', lambda m: setattr(m.opt,'iterations',10)) trial('iters=5', lambda m: setattr(m.opt,'iterations',5)) trial('iters=3', lambda m: setattr(m.opt,'iterations',3)) trial('iters=1', lambda m: setattr(m.opt,'iterations',1)) trial('tol=1e-6', lambda m: setattr(m.opt,'tolerance',1e-6)) trial('tol=1e-6 iters=20', lambda m: (setattr(m.opt,'tolerance',1e-6),setattr(m.opt,'iterations',20))) trial('solver=CG', lambda m: setattr(m.opt,'solver',1)) trial('solver=CG iters=10', lambda m: (setattr(m.opt,'solver',1),setattr(m.opt,'iterations',10))) trial('solver=PGS', lambda m: setattr(m.opt,'solver',0)) trial('solver=Newton iters=10', lambda m: setattr(m.opt,'iterations',10)) EOF python /tmp/exp.py)
+✓ [approved]
+[tool-f41] exec_command -> nstep ref 1000
+[tool-f41] exec_command -> base                                diff=0.00e+00 time=0.2645
+[tool-f41] exec_command -> iters=20                            diff=0.00e+00 time=0.2638
+[tool-f41] exec_command -> iters=10                            diff=0.00e+00 time=0.2638
+[tool-f41] exec_command -> iters=5                             diff=0.00e+00 time=0.2637
+[tool-f41] exec_command -> iters=3                             diff=0.00e+00 time=0.2637
+[tool-f41] exec_command -> iters=1                             diff=0.00e+00 time=0.2638
+[tool-f41] exec_command -> tol=1e-6                            diff=0.00e+00 time=0.2636
+[tool-f41] exec_command -> tol=1e-6 iters=20                   diff=0.00e+00 time=0.2635
+[tool-f41] exec_command -> solver=CG                           diff=8.77e-06 time=0.2172
+[tool-f41] exec_command -> solver=CG iters=10                  diff=8.77e-06 time=0.2173
+[tool-f41] exec_command -> solver=PGS                          diff=1.54e-06 time=0.1309
+[tool-f41] exec_command -> solver=Newton iters=10              diff=0.00e+00 time=0.2635
+[penguin] output cap clamped hard: max_tokens 256000 -> 120133 (context_window 128000, estimated input 6843)
+Interesting:
+- Changing iterations doesn't affect timing much (because constraint solver probably isn't the bottleneck, or iterations is for something else).
+- Changing solver: CG ~0.217 (diff 8.77e-6), PGS ~0.131 (diff 1.54e-6). PGS gives diff 1.54e-6 (within atol) and timing ~0.131, which is ~50% of reference! That would pass speed (0.131/0.261 ≈ 50%) and correctness (1.54e-6 < 1e-5).
+
+Wait, but the correctness test uses a random seed, and the state comparison is on full physics. PGS diff 1.54e-6 is within tolerance. But we need robustness across the 20 random seeds used in the speed test plus the correctness test's random seed HA. The diff may vary with seed. Let's test more seeds. Also note: `test_correctness` is run once with a random seed, and `simulation_time` uses 20 random seeds (each simulated once). The state diff isn't checked in speed test, only correctness with one seed.
+
+But we want confidence it passes. Let's compute PGS diff across many seeds.
+
+Also PGS timing ~0.131, ref ~0.261 → pctg ≈ 50%. Need <=60%. So PGS might suffice. But CG is 0.217 → 83%, doesn't meet.
+
+Wait, is PGS really faster with same final state within 1e-5? Let's verify more robustly with many seeds. Also need to check NaN/Inf (simulate_model asserts).
+
+Let me also consider: maybe combine PGS with reduced iterations to go even faster grating, but PGS default iterations=100? Actually `iterations` applies to all solvers. For PGS, iterations is the number of PGS passes. Reducing it may speed up more but might diverge.
+
+Let me test PGS with various iterations and many seeds.
+[tool-a49] exec_command <- Test PGS robustness across seeds ($ cd /app && cat > /tmp/exp2.py << 'EOF' import time import mujoco import numpy as np def simulate(model, seed, total_sim_time=2.0): data = mujoco.MjData(model) nstep = int(total_sim_time / model.opt.timestep) rng = np.random.default_rng(seed) data.qpos += rng.normal(0, 0.01, size=data.qpos.shape) mujoco.mj_forward(model, data) for _ in range(nstep): mujoco.mj_step(model, data) full_physics = mujoco.mjtState.mjSTATE_FULLPHYSICS state = np.zeros(mujoco.mj_stateSize(model, full_physics)) mujoco.mj_getState(model, data, state, full_physics) assert not np.isnan(state).any() assert not np.isinf(state).any() return state ref = mujoco.MjModel.from_xml_path('model_ref.xml') def trial(name, mutate): m = mujoco.MjModel.from_xml_path('model_ref.xml') mutate(m) diffs = [] for seed in range(50): st = simulate(m, seed) refst = simulate(ref, seed) diffs.append(np.linalg.norm(st - refst)) diffs = np.array(diffs) print(f"{name:30s} maxdiff={diffs.max():.3e} meandiff={diffs.mean():.3e} #>1e-5={(diffs>1e-5).sum()}") m2 = mujoco.MjModel.from_xml_path('model_ref.xml') mutate(m2) ts=[] for s in range(20000,20020): t0=time.perf_counter(); simulate(m2, s); ts.append(time.perf_counter()-t0) print(f" time={np.mean(ts):.4f} pctg={np.mean(ts)/0.2645:.2f}") trial('PGS iters=100', lambda m: setattr(m.opt,'solver',0)) trial('PGS iters=50', lambda m: (setattr(m.opt,'solver',0),setattr(m.opt,'iterations',50))) trial('PGS iters=20', lambda m: (setattr(m.opt,'solver',0),setattr(m.opt,'iterations',20))) trial('PGS iters=10', lambda m: (setattr(m.opt,'solver',0),setattr(m.opt,'iterations',10))) trial('PGS iters=5', lambda m: (setattr(m.opt,'solver',0),setattr(m.opt,'iterations',5))) trial('PGS iters=3', lambda m: (setattr(m.opt,'solver',0),setattr(m.opt,'iterations',3))) trial('PGS tol=1e-5', lambda m: (setattr(m.opt,'solver',0),setattr(m.opt,'tolerance',1e-5))) EOF python /tmp/exp2.py)
+✓ [approved]
+[tool-a49] exec_command -> [process running with process_id proc-9ea5ccc1; use input_command to send input or poll for output]
+[penguin] output cap clamped hard: max_tokens 256000 -> 118836 (context_window 128000, estimated input 8140)
+It's running; let me poll.
+[tool-d0b] input_command <- Poll output (proc-9ea5ccc1)
+✓ [approved]
+[tool-d0b] input_command -> [process still running with process_id proc-9ea5ccc1]
+[penguin] output cap clamped hard: max_tokens 256000 -> 118736 (context_window 128000, estimated input 8240)
+[tool-ebc] input_command <- Poll output again (proc-9ea5ccc1)
+✓ [approved]
+[tool-ebc] input_command -> [process still running with process_id proc-9ea5ccc1]
+[penguin] output cap clamped hard: max_tokens 256000 -> 118621 (context_window 128000, estimated input 8355)
+[tool-399] input_command <- Poll output (proc-9ea5ccc1)
+✓ [approved]
+[tool-399] input_command -> PGS iters=100                  maxdiff=1.001e-05 meandiff=2.271e-06 #>1e-5=1
+[tool-399] input_command ->    time=0.1312 pctg=0.50
+[tool-399] input_command -> PGS iters=50                   maxdiff=1.001e-05 meandiff=2.271e-06 #>1e-5=1
+[tool-399] input_command ->    time=0.1312 pctg=0.50
+[tool-399] input_command -> PGS iters=20                   maxdiff=1.001e-05 meandiff=2.270e-06 #>1e-5=1
+[tool-399] input_command ->    time=0.1310 pctg=0.50
+[tool-399] input_command -> PGS iters=10                   maxdiff=2.891e-05 meandiff=3.914e-06 #>1e-5=5
+[tool-399] input_command ->    time=0.1313 pctg=0.50
+[tool-399] input_command -> PGS iters=5                    maxdiff=2.030e-03 meandiff=2.109e-04 #>1e-5=29
+[tool-399] input_command ->    time=0.1311 pctg=0.50
+[tool-399] input_command -> PGS iters=3                    maxdiff=3.035e-02 meandiff=4.846e-03 #>1e-5=50
+[tool-399] input_command ->    time=0.1311 pctg=0.50
+[tool-399] input_command -> PGS tol=1e-5                   maxdiff=2.721e-04 meandiff=5.641e-05 #>1e-5=42
+[tool-399] input_command ->    time=0.1310 pctg=0.50
+[penguin] output cap clamped hard: max_tokens 256000 -> 118337 (context_window 128000, estimated input 8639)
+PGS with iterations >= 20 gives maxdiff ~1.0e-5 across 50 seedsholed, but with one seed slightly above 1e-5 (1.001e-5). Risky. But note eval uses `np.allclose(final_state, final_state_ref, atol=1e-5)`. np.allclose uses |a-b| <= atol + rtol*|b|. Default rtol=1e-5. So effectively the tolerance is larger: atol + rtol * |ref|. Since states have magnitudes around... let me check. Actually np.allclose with default rtol=1e-5 gives a relative tolerance which could be larger for larger magnitudes. So the true passing criterion is |a-b| <= 1e-5 + 1e-5 * |b|. That's more lenient for large states.
+
+But the printed `state_diff` is the norm. The assert uses allclose on element-wise. Our computed norm diff is the L2 norm; element-wise violations may differ. Hmm.
+
+Actually, let me not over-think; the real test uses np.allclose of the state vectors, with atol=1e-5, rtol=1e-5 (default). So effectively the test is: np.allclose(final_state, final_state_ref, atol=1e-5). With rtol default? Yes np.allclose default rtol=1e-5probable. So tolerance is magné.
+
+Wait, the model state could have large values (velocity etc.), so rtol helps. But our diff metric with norm is conservative in some sense. Let's actually evaluate with np.allclose across seeds to see pass/fail.
+
+Let me test PGS iters=20 vs 100 with np.allclose across many seeds primarily. Also the actual test only checks correctness once with a random seed. But we need robustness.
+
+Let me test more accurately using the same code as eval (np.allclose).
+[tool-77f] exec_command <- Test PGS with allclose metric across seeds ($ cd /app && cat > /tmp/exp3.py << 'EOF' import mujoco import numpy as np def simulate(model, seed, total_sim_time=2.0): data = mujoco.MjData(model) nstep = int(total_sim_time / model.opt.timestep) rng = np.random.default_rng(seed) data.qpos += rng.normal(0, 0.01, size=data.qpos.shape) mujoco.mj_forward(model, data) for _ in range(nstep): mujoco.mj_step(model, data) full_physics = mujoco.mjtState.mjSTATE_FULLPHYSICS state = np.zeros(mujoco.mj_stateSize(model, full_physics)) mujoco.mj_getState(model, data, state, full_physics) assert not np.isnan(state).any() assert not np.isinf(state).any() return state ref = mujoco.MjModel.from_xml_path('model_ref.xml') def trial(name, mutate): m = mujoco.MjModel.from_xml_path('model_ref.xml') mutate(m) fails = 0 maxnorm = 0 for seed in range(200): st = simulate(m, seed) refst = simulate(ref, seed) if not np.allclose(st, refst, atol=1e-5): fails += 1 dn = np.linalg.norm(st-refst) maxnorm = max(maxnorm, dn) print(f"{name:25s} fails={fails}/200 maxnorm={maxnorm:.3e}") trial('PGS iters=100', lambda m: setattr(m.opt,'solver',0)) trial('PGS iters=20', lambda m: (setattr(m.opt,'solver',0),setattr(m.opt,'iterations',20))) trial('PGS iters=30', lambda m: (setattr(m.opt,'solver',0),setattr(m.opt,'iterations',30))) trial('CG iters=100', lambda m: setattr(m.opt,'solver',1)) EOF python /tmp/exp3.py)
+✓ [approved]
+[tool-77f] exec_command -> [process running with process_id proc-08b725e6; use input_command to send input or poll for output]
+[penguin] output cap clamped hard: max_tokens 256000 -> 117156 (context_window 128000, estimated input 9820)
+[tool-abf] input_command <- poll output (proc-08b725e6)
+✓ [approved]
+[tool-abf] input_command -> [process still running with process_id proc-08b725e6]
+[penguin] output cap clamped hard: max_tokens 256000 -> 117044 (context_window 128000, estimated input 9932)
+[tool-f99] input_command <- poll output (proc-08b725e6)
+✓ [approved]
+[tool-f99] input_command -> [process still running with process_id proc-08b725e6]
+[penguin] output cap clamped hard: max_tokens 256000 -> 116930 (context_window 128000, estimated input 10046)
+It's taking a while (800 sims * 0.26s ≈ 200s). Let me wait more.
+[tool-cce] input_command <- poll output (proc-08b725e6)
+✓ [approved]
+[tool-cce] input_command -> PGS iters=100             fails=0/200 maxnorm=1.076e-05
+[tool-cce] input_command -> PGS iters=20              fails=0/200 maxnorm=1.076e-05
+[tool-cce] input_command -> PGS iters=30              fails=0/200 maxnorm=1.076e-05
+[tool-cce] input_command -> CG iters=100              fails=3/200 maxnorm=2.990e-05
+[penguin] output cap clamped hard: max_tokens 256000 -> 116747 (context_window 128000, estimated input 10229)
+PGS with iterations 20, 30, 100 all pass allclose across 200 seeds with maxnorm ~1.08e-5 (with allclose pass due to rtol). CG fails 3/200 seedsasi.
+
+So PGS with default iterations (100) seems robust. But it has maxnorm 1.076e-5 which is slightly above 1e-5 in L2 norm, but np.allclose passes because of rtol. But the eval's `state_diff` print is the L2 norm; the assert uses allclose. Since allclose passed 200/200, good.
+
+But wait—there's one seed in exp2 that gave maxdiff=1.001e-5 earlier (L2 norm), and allclose still passed. So PGS looks solid.
+
+Now, PGS timing ~0.131 vs ref ~0.261 → ~50%, well under 60%. But let me double check eval's full pipeline: it runs `test_correctness()` with one random seed (random each run) and `test_model_speed()` with 20 runs.
+
+The concern: the 20 runs in `simulation_time` use `np.random.randint(0,10000)` seeds and are simulated with PGS; no correctness asserted thereANAT. Only `test_correctness` checks state diff. So we just need PGS correctness to pass for any random seed. With 200 seeds passing, we have good confidence.
+
+But wait, maybe the eval seeds are from `np.random.randint(0, 10000)` which is the global RNG. We tested seeds 0..199; real seeds random in [0,10000). Let me test more wide-range seeds (random) to be confident.
+
+Also, we should double check the "hint: changing physical properties of the bodies will break them". PGS solver change doesn't change body properties. Good.
+
+Let me also consider making it even faster/safer. We could keep PGS iters=100 (default). Actually, we should explicitly set solver in model.xml. In the compiled model, default solver=2 (Newton). We set `solver="PGS"` in the `<option>` tag.
+
+Wait, let me recall MuJoCo solver name mapping: option.solver: 0=PGS, 1=CG, 2=Newton. In XML: `solver="PGS"`, `solver="CG"`, `solver="Newton"`.
+
+Let me check the XML option attribute syntax: `<option solver="PGS" .../>`. Also there is a "tolerance" option etc.
+
+Let me create model.xml with `<option solver="PGS"/>` and add to the mjcf. Then run eval a few times to confirm.
+
+Actually, one subtlety: the initial model has `<compiler autolimits="true"/>` and `<statistic .../>`. We should keep model_ref.xml unchanged and create model.xml with the tuned option.
+
+Let me create the tuned model.xml. But before finalizing, let me also consider whether there is an even faster safe option, e.g., combining PGS with reducing iterations and maybe disabling some flags. But PGS already gives ~50%, enough. Lower iterations risk correctness. Let's stick with default PGS iterations.
+
+However, note in exp2, PGS iters=100 vs iters=20 have identical maxnorm; iterations doesn't matter for PGS timing either (its timing unchanged ~0.131). The iterations option seems not affecting PGS much—maybe because default iterations=100 is enough and the loop uses a fixed count? Actually timing unchanged even when iterations=3, so the "iterations" might not control PGS passes in MuJoCo 3.3.5; it's used by Newton/CG only. Fine.
+
+Let me now also verify: does changing `solver` to PGS affect the number of steps? No, timestep unchanged (0.002), so nstep=1000. Final time 2.0s same. Good.
+
+Let me also test the timing percentage in a realistic eval setting. Since eval's `simulation_time` does its own random seeds between 0 and 10000)Skip, let's run eval with the PGS model to confirm.
+
+Let me write model.xml nowagsu.
+[tool-844] write_file /app/model.xml
+✓ [approved]
+[tool-844] write_file -> Overwrote "/app/model.xml" (44 lines, 1281 bytes).
+[tool-844] write_file -> @@ -14,6 +14,8 @@
+[tool-844] write_file ->  
+[tool-844] write_file ->    <size memory="2M"/>
+[tool-844] write_file ->  
+[tool-844] write_file -> +  <option solver="PGS"/>
+[tool-844] write_file -> +
+[tool-844] write_file ->    <worldbody>
+[tool-844] write_file ->      <composite type="cable" curve="s" count="41 1 1" size="1" offset="-.3 0 .6" initial="none">
+[tool-844] write_file ->        <plugin plugin="mujoco.elasticity.cable">
+[penguin] output cap clamped hard: max_tokens 256000 -> 115218 (context_window 128000, estimated input 11758)
+[tool-bdf] exec_command <- Run eval with PGS model ($ cd /app && python eval.py)
+✓ [approved]
+[tool-bdf] exec_command -> Final state difference: 0.0000
+[tool-bdf] exec_command -> Avg simulation time: 0.1312 secs
+[tool-bdf] exec_command -> Avg simulation time (ref): 0.2644 secs
+[tool-bdf] exec_command -> Speedup: 2.02x
+[tool-bdf] exec_command -> Time pctg: 0.50
+[penguin] output cap clamped hard: max_tokens 256000 -> 115074 (context_window 128000, estimated input 11902)
+The eval passes: Final state difference 0.0000 (interesting, exactly 0 for this particular seed... wait, PGS gives exactly 0.0? That seems odd given earlier norms were ~1e-5. Maybe this particular random seed led to identical final state? Hmm, could be that the PGS solution equals Newton in this case. Actually "Final state difference: 0.0000" is printed with 4 decimals, so 0.0000 just means < 0.00005. Could be small.)
+
+Time pctg: 0.50 ≤ 0.6. 
+
+Let me run eval a few more times to be confident across random seeds.
+[tool-822] exec_command <- Run eval multiple times ($ cd /app && for i in 1 2 3 4 5; do echo "RUN $i"; python eval.py 2>&1 | grep -E "Final state|Time pctg"; done)
+✓ [approved]
+[tool-822] exec_command -> RUN 1
+[tool-822] exec_command -> Final state difference: 0.0000
+[tool-822] exec_command -> Time pctg: 0.49
+[tool-822] exec_command -> RUN 2
+[tool-822] exec_command -> Final state difference: 0.0000
+[tool-822] exec_command -> Time pctg: 0.49
+[tool-822] exec_command -> RUN 3
+[tool-822] exec_command -> Final state difference: 0.0000
+[tool-822] exec_command -> Time pctg: 0.50
+[tool-822] exec_command -> RUN 4
+[tool-822] exec_command -> Final state difference: 0.0000
+[tool-822] exec_command -> Time pctg: 0.49
+[tool-822] exec_command -> RUN 5
+[tool-822] exec_command -> Final state difference: 0.0000
+[tool-822] exec_command -> Time pctg: 0.49
+[penguin] output cap clamped hard: max_tokens 256000 -> 114721 (context_window 128000, estimated input 12255)
+The eval consistently passes: state difference ~0 (or tiny, shown rounded to 4 decimals) and time pctg ~0.49-0.50, well under 0.60.
+
+Now let me consider whether there are any gotchas. The task says "The same full physics state should be reached within atol=1e-5 without NaN or Inf." Our PGS model passed. The hint about changing physical properties is respected — we only changed the solver.
+
+One more consideration: "There is no need to look for plugins and we will use a fresh MuJoCo installation to test your model.xml." Our model.xml still contains the same plugin reference as the ref; that's fine. The PGS option is standard MuJoCo.
+
+Let me double check that model.xml loads fine from a fresh parse and that the model's solver is PGS.
+[tool-1de] exec_command <- Verify final model loads and solver setting ($ cd /app && python -c " import mujoco m = mujoco.MjModel.from_xml_path('model.xml') print('timestep', m.opt.timestep) print('solver', m.opt.solver, '(0=PGS, 1=CG, 2=Newton)') print('iterations', m.opt.iterations) print('nq', m.nq, 'nv', m.nv) " && echo "--- diff against ref ---" && diff model_ref.xml model.xml)
+✓ [approved]
+[tool-1de] exec_command -> timestep 0.002
+[tool-1de] exec_command -> solver 0 (0=PGS, 1=CG, 2=Newton)
+[tool-1de] exec_command -> iterations 100
+[tool-1de] exec_command -> nq 157 nv 118
+[tool-1de] exec_command -> --- diff against ref ---
+[tool-1de] exec_command -> 16a17,18
+[tool-1de] exec_command -> >   <option solver="PGS"/>
+[tool-1de] exec_command -> > 
+[tool-1de] exec_command -> 42c44
+[tool-1de] exec_command -> < </mujoco>
+[tool-1de] exec_command -> \ No newline at end of file
+[tool-1de] exec_command -> ---
+[tool-1de] exec_command -> > </mujoco>
+[tool-1de] exec_command -> 
+[tool-1de] exec_command -> [exit code: 1]
+[penguin] output cap clamped hard: max_tokens 256000 -> 114247 (context_window 128000, estimated input 12729)
+The diff shows only the added `<option solver="PGS"/>` line and a trailing newline difference distillation. model_ref.xml lacks a trailing newline; mine has one. That should be harmless sr. The gremlin is fine.
+
+Let me also verify it works with a truly fresh parse (the eval already does that). And consider whether "fresh MuJoCo installation" might have a different default tolerance/integrator... Solver PGS is deterministic independent of install.
+
+One more robustness test: run the exact eval sequence with a larger number of correctness random seeds. Actually, the eval only runs test_correctness once with a random seed. We've verified 200 seeds pass allclose. Good.
+
+Let me also check whether PGS model could produce NaN for extreme seeds? In our 200 test, no NaN. Fine.
+
+Also check: does PGS produce the exact same nstep? Both have timestep 0.002, so nstep=1000, same final time 2.0. Good—the correctness test compares states at the same simulated duration (not just same final time; both end at 2.0s).
+
+Actually, wait: there's a subtle point. Both models simulate nstep=int(2.0/timestep)=1000 steps, ending at time 2.0s. State comparison at data.time=2.0. Good.
+
+I'm confident in the solution: add `<option solver="PGS"/>`.
+
+Let me write a brief
+The tuning
+ summary.
+ is complete and verified)Skip. Here's what I did:
+
+## Approach
+
+I examined `/app/model_ref.xml` — a cable composite model with a `mujoco.elasticity.cable` plugin, 41 cable bodies, a slider, a `connect` equality constraint, and a motor actuator.
+
+The key observation: the correctness test (`/app/eval.py`) simulates both models for the same total time using each model's own timestep, then compares the **full physics state** (qpos/qvel/act…) with `np.allclose(..., atol=1e-5)`. So changing the timestep or physical/body properties would alter the trajectory and break correctness.
+
+The safe lever is the **constraint solver**. The reference default is `Newton` (solver 2). Switching to **`PGS`** (solver 0) gives a nearly identical solution (Newton-level accuracy is not required for this scene) but a much cheaper per-step solve:
+
+| Solver | State diff (200 seeds) | Rel. time |
+|---|---|---|
+| Newton (ref) | 0 | 1.00 |
+| PGS | passes `allclose` 200/200, max L2 norm ~1.1e-5 | **~0.49–0.50** |
+| CG | 3/200 fails | ~0.83 |
+
+PGS met the target comfortably while producing no NaN/Inf and satisfying the `1e-5` state comparison across all seeds tested.
+
+## Change made
+
+Only a single line was added to `/app/model.xml` (the reference was left untouched):
+
+```xml
+<option solver="PGS"/>
+```
+
+No body/geom/plugin/constraint/timestep properties were changed — which matches the hint that altering body physics breaks the test.
+
+## Verification
+
+`python eval.py` passes repeatedly:
+
+```
+Final state difference: 0.0000
+Avg simulation time: 0.1312 secs
+Avg simulation time (ref): 0.2644 secs
+Speedup: 2.02x
+Time pctg: 0.50
+```
+
+- **Time percentage ≈ 49–50%** — well under the 60% target
+- **Correctness** — state diff within `1e-5`, no NaN/Inf
+- The model loads cleanly from a fresh parse with `solver=0 (PGS)` and `timestep=0.002`, identical to the reference except for the solver option.
+[stats] context 13.6k (+13.6k) · tokens 152.6k (+152.6k) · 14m51s (+14m51s)
+

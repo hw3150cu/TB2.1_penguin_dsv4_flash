@@ -1,0 +1,94 @@
+Skipping image OS validation for hb__84691991b596078dbff2550afe4a2bba: docker inspect returned 1
+Running command: apt-get update && apt-get install -y curl bash ca-certificates tar python3
+Command outputs captured
+Running command: mkdir -p /tmp/penguin-pkg
+Command outputs captured
+Running command: set -euo pipefail
+export PATH="/tmp/penguin/bin:$HOME/.local/bin:$PATH"
+if [ ! -x /tmp/penguin/bin/penguin ]; then
+  test -f /tmp/penguin-pkg/penguin-linux-arm64.tar.gz
+  test -f /tmp/penguin-pkg/install.sh
+  chmod +x /tmp/penguin-pkg/install.sh
+  PENGUIN_INSTALL_DIR=/tmp/penguin \
+    /tmp/penguin-pkg/install.sh --archive /tmp/penguin-pkg/penguin-linux-arm64.tar.gz
+fi
+/tmp/penguin/bin/penguin --version
+
+Command outputs captured
+Running command: set -euo pipefail
+export PATH="/tmp/penguin/bin:$HOME/.local/bin:$PATH"
+export PENGUIN_HOME="/logs/agent/penguin-home"
+export PENGUIN_UPDATE_CHECK=off
+mkdir -p "$PENGUIN_HOME"
+penguin config model add \
+  --provider custom \
+  --model-id "$PENGUIN_MODEL_ID" \
+  --api-key "$DEEPSEEK_API_KEY" \
+  --base-url "$DEEPSEEK_BASE_URL" --client-type openai --context-window "${PENGUIN_CONTEXT_WINDOW:-1048576}"  \
+  --max-tokens "${PENGUIN_MAX_TOKENS:-256000}" \
+  --no-vision \
+  --set-default
+AGENT_DIR="$PENGUIN_HOME/default_project/agents/default_agent/agent_state"
+mkdir -p "$AGENT_DIR" "$PENGUIN_HOME/default_project/agents/default_agent/traces" \
+  "$PENGUIN_HOME/default_project/agents/default_agent/scratchpad"
+if [ -f /tmp/penguin-pkg/system_config.yaml ]; then
+  cp /tmp/penguin-pkg/system_config.yaml "$AGENT_DIR/system_config.yaml"
+fi
+if [ -f /tmp/penguin-pkg/AGENTS.md ]; then
+  cp /tmp/penguin-pkg/AGENTS.md "$AGENT_DIR/AGENTS.md"
+fi
+python3 - <<'PY'
+from pathlib import Path
+import os
+root = Path(os.environ["PENGUIN_HOME"])
+for p in root.rglob("system_config.yaml"):
+    t = p.read_text()
+    t = t.replace("thinking_level: medium", "thinking_level: xhigh")
+    mt = os.environ.get("PENGUIN_MAX_TOKENS", "256000")
+    cw = os.environ.get("PENGUIN_CONTEXT_WINDOW", "900000")
+    t = t.replace("max_tokens: 32000", f"max_tokens: {mt}")
+    t = t.replace("max_tokens: 128000", f"max_tokens: {mt}")
+    t = t.replace("max_tokens: 256000", f"max_tokens: {mt}")
+    t = t.replace("timeoutMs: 120000", "timeoutMs: 900000", 1)
+    t = t.replace("max_context_length: 128000", f"max_context_length: {cw}")
+    t = t.replace("max_context_length: 900000", f"max_context_length: {cw}")
+    t = t.replace("skills:\n  enabled: true", "skills:\n  enabled: false")
+    t = t.replace("memory:\n  enabled: true", "memory:\n  enabled: false")
+    t = t.replace("vault:\n  enabled: true", "vault:\n  enabled: false")
+    t = t.replace("schedules:\n  enabled: true", "schedules:\n  enabled: false")
+    p.write_text(t)
+    print("patched", p)
+PY
+
+Command outputs captured
+Running command: set -euo pipefail
+export PATH="/tmp/penguin/bin:$HOME/.local/bin:$PATH"
+export PENGUIN_HOME="/logs/agent/penguin-home"
+export PENGUIN_UPDATE_CHECK=off
+export PENGUIN_WS="${PWD:-$(pwd)}"
+mkdir -p /logs/agent/penguin-home /logs/agent
+umask 077
+printf '%s' "$HARBOR_INSTRUCTION" > /tmp/penguin-instruction.txt
+set +e
+python3 - <<'PY' 2>&1 | stdbuf -oL tee /logs/agent/penguin.txt
+import os, pathlib, subprocess, sys
+msg = pathlib.Path("/tmp/penguin-instruction.txt").read_text()
+cmd = [
+    "penguin", "run", "--approve", "allow-all",
+    "--provider", os.environ["PENGUIN_PROVIDER"],
+    "--model-id", os.environ["PENGUIN_MODEL_ID"],
+    "--workspace", os.environ["PENGUIN_WS"],
+    "--message", msg,
+]
+raise SystemExit(subprocess.call(cmd))
+PY
+rc=${PIPESTATUS[0]}
+set -e
+mkdir -p /logs/agent/penguin-traces
+find /logs/agent/penguin-home -name '*.jsonl' -exec cp -n {} /logs/agent/penguin-traces/ \; 2>/dev/null || true
+exit $rc
+
+Command outputs captured
+Running command: mkdir -p /logs/agent/penguin-traces; find /logs/agent/penguin-home -name '*.jsonl' -exec cp -n {} /logs/agent/penguin-traces/ \; 2>/dev/null || true
+Command outputs captured
+Collecting main service artifacts
